@@ -1,34 +1,36 @@
 // pages/index.js
 import dynamic from 'next/dynamic';
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import Masonry from 'react-masonry-css';
+import React, { useState, useEffect, useMemo } from 'react';
+
+// Importiere neue Komponenten
+import CitySelector from '../components/CitySelector';
+import EventDetails from '../components/EventDetails';
+import LiveFeed from '../components/LiveFeed';
+import ContentShareForm from '../components/ContentShareForm';
+import PastEventsTeaser from '../components/PastEventsTeaser';
+
+// Importiere neue Hooks
+import { useEventData } from '../lib/hooks/useEventData';
+import { useLiveContent } from '../lib/hooks/useLiveContent';
+import { useCountdown } from '../lib/hooks/useCountdown';
 import { useIsInsideGeofence } from '../lib/useIsInside';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase'; // Supabase weiterhin hier für Upload/Chat
 
 // Dynamischer Import für MapComponent
 const MapComponent = dynamic(() => import('../components/MapComponent'), { ssr: false });
 
 export default function HomePage() {
-  const [selectedCity, setSelectedCity] = useState('Berlin');
-  const [currentEvent, setCurrentEvent] = useState(null);
-  const [nextEvent, setNextEvent] = useState(null); // NEU: State für das nächste Event
-  const [liveContent, setLiveContent] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [timeRemaining, setTimeRemaining] = useState(null); // NEU: State für den Countdown
-  const contentEndRef = useRef(null);
-  const [pastEvents, setPastEvents] = useState([]);
+  // Verwende den neuen Hook für Event-Daten
+  const { selectedCity, setSelectedCity, currentEvent, nextEvent, cities } = useEventData();
 
-  const cities = [
-    { name: 'Berlin', coords: [52.5200, 13.4050] },
-    { name: 'Los Angeles', coords: [34.0522, -118.2437] },
-    { name: 'Hong Kong', coords: [22.3193, 114.1694] },
-    { name: 'Singapore', coords: [1.3521, 103.8198] },
-    { name: 'Forlì', coords: [44.2225, 12.0408] },
-    { name: 'Basel', coords: [47.5596, 7.5886] },
-  ];
+  // Verwende den neuen Hook für Live-Inhalte
+  const { liveContent, contentEndRef } = useLiveContent(currentEvent);
 
-  // useIsInsideGeofence Hook verwenden
-  // Prüft die Position relativ zum aktuellen Event oder zum nächsten Event, wenn kein aktuelles vorhanden ist
+  // Verwende den neuen Hook für den Countdown
+  const targetCountdownDate = currentEvent ? currentEvent.date : (nextEvent ? nextEvent.date : null);
+  const timeRemaining = useCountdown(targetCountdownDate);
+
+  // Geofence-Logik bleibt hier, da sie von currentEvent/nextEvent und userLocation abhängt
   const { isInside, userLocation } = useIsInsideGeofence(
     currentEvent
       ? { latitude: currentEvent.latitude, longitude: currentEvent.longitude }
@@ -42,187 +44,11 @@ export default function HomePage() {
         : null
   );
 
-  // Effekt zum Abrufen des aktuellen Events und des nächsten Events
-  useEffect(() => {
-
-
-
-    const fetchEvents = async () => {
-      try {
-        const response = await fetch(`/api/event/active?city=${selectedCity}`);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json(); // Erwartet { activeEvent, nextUpcomingEvent }
-
-        if (data.activeEvent) {
-          setCurrentEvent({
-            id: data.activeEvent.id,
-            city: data.activeEvent.city,
-            latitude: data.activeEvent.latitude,
-            longitude: data.activeEvent.longitude,
-            radius: data.activeEvent.radius,
-            date: new Date(data.activeEvent.starts_at),
-            startTime: new Date(data.activeEvent.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            endTime: new Date(data.activeEvent.ends_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          });
-          setNextEvent(null); // Kein nächstes Event, wenn ein aktuelles aktiv ist
-        } else {
-          setCurrentEvent(null);
-       
-          if (data.nextUpcomingEvent) {
-            setNextEvent({
-              id: data.nextUpcomingEvent.id,
-              city: data.nextUpcomingEvent.city,
-              latitude: data.nextUpcomingEvent.latitude,
-              longitude: data.nextUpcomingEvent.longitude,
-              radius: data.nextUpcomingEvent.radius,
-              date: data.nextUpcomingEvent.starts_at,
-              startTime: data.nextUpcomingEvent.starts_at,
-              endTime: data.nextUpcomingEvent.ends_at,
-            });
-          } else {
-            // Kein aktives oder zukünftiges Event: Generiere ein zufälliges Event für die nächste Woche
-            // Zufällige Koordinaten in der gewählten Stadt
-            const cityObj = cities.find(c => c.name === selectedCity);
-            const baseLat = cityObj?.coords[0] || 52.5200;
-            const baseLng = cityObj?.coords[1] || 13.4050;
-            const randomOffset = () => (Math.random() - 0.5) * 0.02; // ~2km Radius
-
-            const randomLat = baseLat + randomOffset();
-            const randomLng = baseLng + randomOffset();
-
-            const nextWeek = new Date();
-            nextWeek.setDate(nextWeek.getDate() + 7);
-            nextWeek.setHours(18, 0, 0, 0); // 18:00 Uhr nächste Woche
-
-
-
-            setNextEvent({
-              id: 'random',
-              city: selectedCity,
-              latitude: randomLat,
-              longitude: randomLng,
-              radius: 50,
-              date: nextWeek.toISOString(),
-              startTime: nextWeek.toISOString(),
-              endTime: new Date(nextWeek.getTime() + 2 * 60 * 60 * 1000).toISOString(),
-            });
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching events:", error);
-        setCurrentEvent(null);
-        setNextEvent(null);
-      }
-    };
-
-    fetchEvents();
-  }, [selectedCity]);
-
-  // NEU: Countdown-Logik
-  useEffect(() => {
-    let timer;
-    const targetEvent = currentEvent || nextEvent; // Countdown für aktuelles oder nächstes Event
-
-    if (targetEvent && targetEvent.date) {
-      const calculateTimeRemaining = () => {
-        const now = new Date();
-        const startsAt = new Date(targetEvent.date);
-        const diff = startsAt.getTime() - now.getTime();
-
-        if (diff <= 0) {
-          setTimeRemaining(null); // Event hat begonnen oder ist vorbei
-          clearInterval(timer);
-        } else {
-          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-          const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-          setTimeRemaining(`${days}d ${hours}h ${minutes}m ${seconds}s`);
-        }
-      };
-
-      calculateTimeRemaining(); // Initialer Aufruf
-      timer = setInterval(calculateTimeRemaining, 1000);
-    } else {
-      setTimeRemaining(null);
-    }
-
-    return () => clearInterval(timer);
-  }, [currentEvent, nextEvent]); // Abhängigkeit von currentEvent und nextEvent
-
-  // Effekt zum Abrufen von Live-Inhalten für das aktuelle Event über Supabase Realtime
-  useEffect(() => {
-    setLiveContent([]); // Always clear live feed when city or event changes
-    if (!currentEvent) {
-      return;
-    }
-
-    const fetchInitialContent = async () => {
-      // Initial Posts und Chats über die API-Route abrufen
-      const response = await fetch(`/api/event/${currentEvent.id}/posts`);
-      if (!response.ok) {
-        console.error("Error fetching initial live content:", await response.text());
-        return;
-      }
-      const data = await response.json();
-      setLiveContent(data.posts || []);
-      if (contentEndRef.current) {
-        contentEndRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-    };
-
-    fetchInitialContent();
-
-    // Realtime-Abonnement für Posts
-    const postsChannel = supabase
-      .channel(`posts:${currentEvent.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `event_id=eq.${currentEvent.id}` }, payload => {
-        const newPost = {
-          id: payload.new.id,
-          event_id: payload.new.event_id,
-          user_id: payload.new.user_id,
-          type: payload.new.type,
-          url: payload.new.content_url,
-          text: payload.new.text_content,
-          timestamp: payload.new.created_at,
-        };
-        setLiveContent(prev => [...prev, newPost].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()));
-        if (contentEndRef.current) {
-          contentEndRef.current.scrollIntoView({ behavior: 'smooth' });
-        }
-      })
-      .subscribe();
-
-    // Realtime-Abonnement für Chats
-    const chatsChannel = supabase
-      .channel(`chats:${currentEvent.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chats', filter: `event_id=eq.${currentEvent.id}` }, payload => {
-        const newChat = {
-          id: payload.new.id,
-          event_id: payload.new.event_id,
-          user_id: payload.new.user_id,
-          type: 'chat',
-          text: payload.new.message,
-          timestamp: payload.new.sent_at,
-        };
-        setLiveContent(prev => [...prev, newChat].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()));
-        if (contentEndRef.current) {
-          contentEndRef.current.scrollIntoView({ behavior: 'smooth' });
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(postsChannel);
-      supabase.removeChannel(chatsChannel);
-    };
-  }, [currentEvent, selectedCity]);
+  const [chatInput, setChatInput] = useState('');
 
   // Chat-Nachricht senden
   const handleSendChat = async () => {
-    if (chatInput.trim() === '' || !currentEvent) return; // Nur senden, wenn ein aktuelles Event aktiv ist
+    if (chatInput.trim() === '' || !currentEvent) return;
     if (!isInside) {
       alert('Sie sind nicht im Event-Bereich und können keine Nachrichten senden!');
       return;
@@ -241,7 +67,7 @@ export default function HomePage() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       setChatInput('');
-      // Inhalte werden durch Realtime-Abonnement aktualisiert
+      // Inhalte werden durch Realtime-Abonnement in useLiveContent aktualisiert
     } catch (e) {
       console.error("Error sending chat message: ", e);
       alert("Fehler beim Senden der Nachricht.");
@@ -251,7 +77,7 @@ export default function HomePage() {
   // Medien-Upload über Supabase Storage
   const handleUploadMedia = async (event) => {
     const file = event.target.files[0];
-    if (!currentEvent || !file) return; // Nur hochladen, wenn ein aktuelles Event aktiv ist
+    if (!currentEvent || !file) return;
     if (!isInside) {
       alert('Sie sind nicht im Event-Bereich und können keine Medien hochladen!');
       return;
@@ -287,18 +113,11 @@ export default function HomePage() {
       if (!response.ok) {
         throw new Error(`Failed to create post: ${response.statusText}`);
       }
-      // Inhalte werden durch Realtime-Abonnement aktualisiert
+      // Inhalte werden durch Realtime-Abonnement in useLiveContent aktualisiert
     } catch (e) {
       console.error("Error uploading media: ", e);
       alert("Failed to upload media. Please try again.");
     }
-  };
-
-  const breakpointColumnsObj = {
-    default: 4,
-    1100: 3,
-    700: 2,
-    500: 1
   };
 
   // Bestimme die anzuzeigenden Kartenkoordinaten und den Radius
@@ -306,7 +125,7 @@ export default function HomePage() {
     if (currentEvent) return [currentEvent.latitude, currentEvent.longitude];
     if (nextEvent) return [nextEvent.latitude, nextEvent.longitude];
     return cities.find(c => c.name === selectedCity)?.coords || [52.5200, 13.4050];
-  }, [currentEvent, nextEvent, selectedCity]);
+  }, [currentEvent, nextEvent, selectedCity, cities]);
 
   const mapRadius = currentEvent
     ? currentEvent.radius
@@ -331,42 +150,20 @@ export default function HomePage() {
       </header>
 
       <div className="bg-green-500 text-white p-4">
-  Tailwind funktioniert!
-</div>
+        Tailwind funktioniert!
+      </div>
 
       <main className="flex-grow container mx-auto p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-lg shadow-md p-4">
           <h2 className="text-xl font-semibold mb-4">Current Happening</h2>
 
-          {/* Past Events Teaser */}
-          {pastEvents.length > 0 && (
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold mb-2">Past Events in {selectedCity}</h3>
-              <ul className="space-y-2">
-                {pastEvents.slice(0, 3).map(ev => (
-                  <li key={ev.id} className="border rounded p-2 bg-gray-50 hover:bg-gray-100">
-                    <a href={`/archive#event-${ev.id}`} className="text-blue-600 hover:underline">
-                      {ev.name} ({new Date(ev.start_time).toLocaleDateString()})
-                    </a>
-                    <div className="text-xs text-gray-600">{ev.description}</div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <div className="mb-4">
-            <label htmlFor="city-select" className="block text-sm font-medium text-gray-700">Select City:</label>
-            <select
-              id="city-select"
-              className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-              value={selectedCity}
-              onChange={(e) => setSelectedCity(e.target.value)}
-            >
-              {cities.map((city) => (
-                <option key={city.name} value={city.name}>{city.name}</option>
-              ))}
-            </select>
-          </div>
+          <PastEventsTeaser selectedCity={selectedCity} />
+
+          <CitySelector
+            selectedCity={selectedCity}
+            setSelectedCity={setSelectedCity}
+            cities={cities}
+          />
 
           {/* Karte wird immer gerendert */}
           <div className="h-96 w-full rounded-md overflow-hidden mb-4">
@@ -378,104 +175,26 @@ export default function HomePage() {
             />
           </div>
 
-          {userLocation && (
-            <p className={`mt-2 text-sm ${isInside ? 'text-green-600' : 'text-red-600'}`}>
-              You are {isInside ? 'inside' : 'outside'} the geofence.
-            </p>
-          )}
-
-          {currentEvent ? (
-            <>
-              <p className="mb-2">
-                **Location:** {currentEvent.city} (Lat: {currentEvent.latitude.toFixed(4)}, Lng: {currentEvent.longitude.toFixed(4)})
-              </p>
-              <p className="mb-2">
-                **Date:** {currentEvent.date.toLocaleDateString()}
-              </p>
-              <p className="mb-4">
-                **Time:** {currentEvent.startTime} - {currentEvent.endTime}
-              </p>
-              <p className="mt-2 text-sm text-gray-700">
-                Event läuft!
-              </p>
-            </>
-          ) : nextEvent ? (
-            <>
-              <p className="mb-2">
-                **Upcoming Event (Geofan):** {nextEvent.city} (Lat: {nextEvent.latitude.toFixed(4)}, Lng: {nextEvent.longitude.toFixed(4)})
-                <br />
-                <span className="text-sm text-gray-600">
-                  Adresse: <span id="next-event-address">Wird geladen...</span>
-                </span>
-              </p>
-              <p className="mb-2">
-                **Startet am:** {nextEvent.date && !isNaN(new Date(nextEvent.date)) ? new Date(nextEvent.date).toLocaleDateString() : 'n/a'} um {nextEvent.startTime && !isNaN(new Date(nextEvent.startTime)) ? new Date(nextEvent.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'n/a'}
-              </p>
-              <p className="mb-2">
-                <span className="text-sm text-gray-600">
-                  Adresse: {nextEvent.latitude && nextEvent.longitude ? <AddressLoader lat={nextEvent.latitude} lng={nextEvent.longitude} /> : "n/a"}
-                </span>
-              </p>
-              <p className="mt-2 text-sm text-gray-700">
-                Nächstes Event startet in: {timeRemaining || 'Lädt...'}
-              </p>
-            </>
-          ) : (
-            <p>No current or upcoming happening found for {selectedCity}.</p>
-          )}
+          <EventDetails
+            currentEvent={currentEvent}
+            nextEvent={nextEvent}
+            timeRemaining={timeRemaining}
+            userLocation={userLocation}
+            isInside={isInside}
+          />
         </div>
 
         <div className="lg:col-span-1 bg-white rounded-lg shadow-md p-4 flex flex-col">
           <h2 className="text-xl font-semibold mb-4">Live Feed</h2>
-          <div className="flex-grow overflow-y-auto border rounded-md p-2 mb-4 h-96">
-            <Masonry
-              breakpointCols={breakpointColumnsObj}
-              className="my-masonry-grid"
-              columnClassName="my-masonry-grid_column"
-            >
-              {liveContent.map((item) => (
-                <div key={item.id} className="p-2 border rounded-md mb-2 break-words">
-                  {item.type === 'chat' && <p className="text-sm">{item.text}</p>}
-                  {item.type === 'photo' && <img src={item.url} alt="Content" className="w-full h-auto rounded-md" />}
-                  {item.type === 'video' && <video src={item.url} controls className="w-full h-auto rounded-md" />}
-                  <p className="text-xs text-gray-500 mt-1">
-                    {new Date(item.timestamp).toLocaleTimeString()}
-                  </p>
-                </div>
-              ))}
-              <div ref={contentEndRef} />
-            </Masonry>
-          </div>
-
-          {currentEvent && isInside && (
-            <div className="mt-auto">
-              <h3 className="text-lg font-semibold mb-2">Share Content / Chat</h3>
-              <div className="flex mb-2">
-                <input
-                  type="text"
-                  className="flex-grow border rounded-l-md p-2 text-sm"
-                  placeholder="Type your message..."
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyPress={(e) => { if (e.key === 'Enter') handleSendChat(); }}
-                />
-                <button
-                  onClick={handleSendChat}
-                  className="bg-blue-500 text-white px-4 py-2 rounded-r-md hover:bg-blue-600 text-sm"
-                >
-                  Send
-                </button>
-              </div>
-              <input
-                type="file"
-                accept="image/*,video/*"
-                onChange={handleUploadMedia}
-                className="w-full bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 text-sm cursor-pointer"
-              />
-            </div>
-          )}
-          {!currentEvent && <p className="text-center text-gray-500">No active event to share content.</p>}
-          {currentEvent && !isInside && <p className="text-center text-gray-500">Move closer to the event to share content!</p>}
+          <LiveFeed liveContent={liveContent} contentEndRef={contentEndRef} />
+          <ContentShareForm
+            currentEvent={currentEvent}
+            isInside={isInside}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            handleSendChat={handleSendChat}
+            handleUploadMedia={handleUploadMedia}
+          />
         </div>
       </main>
 
@@ -484,20 +203,4 @@ export default function HomePage() {
       </footer>
     </div>
   );
-}
-
-function AddressLoader({ lat, lng }) {
-  const [address, setAddress] = React.useState("Wird geladen...");
-  React.useEffect(() => {
-    setAddress("Wird geladen...");
-    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
-      .then(res => res.json())
-      .then(data => {
-        setAddress(data.display_name || "Adresse nicht gefunden");
-      })
-      .catch(() => {
-        setAddress("Adresse nicht gefunden");
-      });
-  }, [lat, lng]);
-  return <span>{address}</span>;
 }
