@@ -1,10 +1,9 @@
 // pages/index.js
 import dynamic from 'next/dynamic';
 import { useState, useEffect, useRef, useCallback } from 'react';
-// import { CldUploadWidget } from 'next-cloudinary'; // ENTFERNT
 import Masonry from 'react-masonry-css';
-import { useIsInsideGeofence } from '../lib/useIsInside'; // Korrekter Importname
-import { supabase } from '../lib/supabase'; // Supabase importieren
+import { useIsInsideGeofence } from '../lib/useIsInside';
+import { supabase } from '../lib/supabase';
 
 // Dynamischer Import für MapComponent
 const MapComponent = dynamic(() => import('../components/MapComponent'), { ssr: false });
@@ -12,8 +11,10 @@ const MapComponent = dynamic(() => import('../components/MapComponent'), { ssr: 
 export default function HomePage() {
   const [selectedCity, setSelectedCity] = useState('Berlin');
   const [currentEvent, setCurrentEvent] = useState(null);
+  const [nextEvent, setNextEvent] = useState(null); // NEU: State für das nächste Event
   const [liveContent, setLiveContent] = useState([]);
   const [chatInput, setChatInput] = useState('');
+  const [timeRemaining, setTimeRemaining] = useState(null); // NEU: State für den Countdown
   const contentEndRef = useRef(null);
 
   const cities = [
@@ -25,44 +26,101 @@ export default function HomePage() {
     { name: 'Basel', coords: [47.5596, 7.5886] },
   ];
 
-  // NEU: useIsInsideGeofence Hook verwenden
+  // useIsInsideGeofence Hook verwenden
+  // Prüft die Position relativ zum aktuellen Event oder zum nächsten Event, wenn kein aktuelles vorhanden ist
   const { isInside, userLocation } = useIsInsideGeofence(
-    currentEvent ? { latitude: currentEvent.latitude, longitude: currentEvent.longitude } : null,
-    currentEvent ? currentEvent.radius : null
+    currentEvent
+      ? { latitude: currentEvent.latitude, longitude: currentEvent.longitude }
+      : nextEvent
+        ? { latitude: nextEvent.latitude, longitude: nextEvent.longitude }
+        : null,
+    currentEvent
+      ? currentEvent.radius
+      : nextEvent
+        ? nextEvent.radius
+        : null
   );
 
-  // Effekt zum Abrufen des aktuellen Events über API
+  // Effekt zum Abrufen des aktuellen Events und des nächsten Events
   useEffect(() => {
-    const fetchCurrentEvent = async () => {
+    const fetchEvents = async () => {
       try {
         const response = await fetch(`/api/event/active?city=${selectedCity}`);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const data = await response.json();
-        if (data.event) {
-          // ÄNDERUNG: Datenstruktur von der API anpassen
+        const data = await response.json(); // Erwartet { activeEvent, nextUpcomingEvent }
+
+        if (data.activeEvent) {
           setCurrentEvent({
-            id: data.event.id,
-            city: data.event.city,
-            latitude: data.event.latitude, // API liefert bereits aufbereitet
-            longitude: data.event.longitude, // API liefert bereits aufbereitet
-            radius: data.event.radius,
-            date: new Date(data.event.starts_at), // starts_at als Datum verwenden
-            startTime: new Date(data.event.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            endTime: new Date(data.event.ends_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            id: data.activeEvent.id,
+            city: data.activeEvent.city,
+            latitude: data.activeEvent.latitude,
+            longitude: data.activeEvent.longitude,
+            radius: data.activeEvent.radius,
+            date: new Date(data.activeEvent.starts_at),
+            startTime: new Date(data.activeEvent.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            endTime: new Date(data.activeEvent.ends_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           });
+          setNextEvent(null); // Kein nächstes Event, wenn ein aktuelles aktiv ist
         } else {
           setCurrentEvent(null);
+          if (data.nextUpcomingEvent) {
+            setNextEvent({
+              id: data.nextUpcomingEvent.id,
+              city: data.nextUpcomingEvent.city,
+              latitude: data.nextUpcomingEvent.latitude,
+              longitude: data.nextUpcomingEvent.longitude,
+              radius: data.nextUpcomingEvent.radius,
+              date: new Date(data.nextUpcomingEvent.starts_at),
+              startTime: new Date(data.nextUpcomingEvent.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              endTime: new Date(data.nextUpcomingEvent.ends_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            });
+          } else {
+            setNextEvent(null);
+          }
         }
       } catch (error) {
-        console.error("Error fetching current event:", error);
+        console.error("Error fetching events:", error);
         setCurrentEvent(null);
+        setNextEvent(null);
       }
     };
 
-    fetchCurrentEvent();
+    fetchEvents();
   }, [selectedCity]);
+
+  // NEU: Countdown-Logik
+  useEffect(() => {
+    let timer;
+    const targetEvent = currentEvent || nextEvent; // Countdown für aktuelles oder nächstes Event
+
+    if (targetEvent && targetEvent.date) {
+      const calculateTimeRemaining = () => {
+        const now = new Date();
+        const startsAt = new Date(targetEvent.date);
+        const diff = startsAt.getTime() - now.getTime();
+
+        if (diff <= 0) {
+          setTimeRemaining(null); // Event hat begonnen oder ist vorbei
+          clearInterval(timer);
+        } else {
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+          setTimeRemaining(`${days}d ${hours}h ${minutes}m ${seconds}s`);
+        }
+      };
+
+      calculateTimeRemaining(); // Initialer Aufruf
+      timer = setInterval(calculateTimeRemaining, 1000);
+    } else {
+      setTimeRemaining(null);
+    }
+
+    return () => clearInterval(timer);
+  }, [currentEvent, nextEvent]); // Abhängigkeit von currentEvent und nextEvent
 
   // Effekt zum Abrufen von Live-Inhalten für das aktuelle Event über Supabase Realtime
   useEffect(() => {
@@ -134,8 +192,8 @@ export default function HomePage() {
 
   // Chat-Nachricht senden
   const handleSendChat = async () => {
-    if (chatInput.trim() === '' || !currentEvent) return;
-    if (!isInside) { // isInside aus useIsInsideGeofence
+    if (chatInput.trim() === '' || !currentEvent) return; // Nur senden, wenn ein aktuelles Event aktiv ist
+    if (!isInside) {
       alert('Sie sind nicht im Event-Bereich und können keine Nachrichten senden!');
       return;
     }
@@ -163,8 +221,8 @@ export default function HomePage() {
   // Medien-Upload über Supabase Storage
   const handleUploadMedia = async (event) => {
     const file = event.target.files[0];
-    if (!currentEvent || !file) return;
-    if (!isInside) { // isInside aus useIsInsideGeofence
+    if (!currentEvent || !file) return; // Nur hochladen, wenn ein aktuelles Event aktiv ist
+    if (!isInside) {
       alert('Sie sind nicht im Event-Bereich und können keine Medien hochladen!');
       return;
     }
@@ -213,6 +271,22 @@ export default function HomePage() {
     500: 1
   };
 
+  // Bestimme die anzuzeigenden Kartenkoordinaten und den Radius
+  const mapCenter = currentEvent
+    ? [currentEvent.latitude, currentEvent.longitude]
+    : nextEvent
+      ? [nextEvent.latitude, nextEvent.longitude]
+      : cities.find(c => c.name === selectedCity)?.coords || [52.5200, 13.4050]; // Standard Berlin
+
+  const mapRadius = currentEvent
+    ? currentEvent.radius
+    : nextEvent
+      ? nextEvent.radius
+      : 1000; // Standardradius (z.B. 1000 Meter), wenn kein Event
+
+  // isActive für MapComponent (nur aktiv, wenn ein aktuelles Event und der Nutzer drin ist)
+  const mapIsActive = currentEvent ? isInside : false;
+
   return (
     <div className="min-h-screen flex flex-col">
       <header className="bg-gray-800 text-white p-4 flex justify-between items-center">
@@ -235,13 +309,29 @@ export default function HomePage() {
               id="city-select"
               className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
               value={selectedCity}
-              onChange={(e) => setSelectedCity(e.target.value)}
+              onChange={(e) => setSelectedCity(e.target.value)} {/* KORREKTUR: setSelected zu setSelectedCity */}
             >
               {cities.map((city) => (
                 <option key={city.name} value={city.name}>{city.name}</option>
               ))}
             </select>
           </div>
+
+          {/* Karte wird immer gerendert */}
+          <div className="h-96 w-full rounded-md overflow-hidden mb-4">
+            <MapComponent
+              center={mapCenter}
+              radius={mapRadius}
+              userLocation={userLocation}
+              isActive={mapIsActive}
+            />
+          </div>
+
+          {userLocation && (
+            <p className={`mt-2 text-sm ${isInside ? 'text-green-600' : 'text-red-600'}`}>
+              You are {isInside ? 'inside' : 'outside'} the geofence.
+            </p>
+          )}
 
           {currentEvent ? (
             <>
@@ -254,22 +344,24 @@ export default function HomePage() {
               <p className="mb-4">
                 **Time:** {currentEvent.startTime} - {currentEvent.endTime}
               </p>
-              <div className="h-96 w-full rounded-md overflow-hidden">
-                <MapComponent
-                  center={[currentEvent.latitude, currentEvent.longitude]}
-                  radius={currentEvent.radius}
-                  userLocation={userLocation}
-                  isActive={isInside} /* NEU: isInside an MapComponent weitergeben */
-                />
-              </div>
-              {userLocation && (
-                <p className={`mt-2 text-sm ${isInside ? 'text-green-600' : 'text-red-600'}`}>
-                  You are {isInside ? 'inside' : 'outside'} the geofence.
-                </p>
-              )}
+              <p className="mt-2 text-sm text-gray-700">
+                Event läuft!
+              </p>
+            </>
+          ) : nextEvent ? (
+            <>
+              <p className="mb-2">
+                **Nächstes Event:** {nextEvent.city} (Lat: {nextEvent.latitude.toFixed(4)}, Lng: {nextEvent.longitude.toFixed(4)})
+              </p>
+              <p className="mb-2">
+                **Startet am:** {nextEvent.date.toLocaleDateString()} um {nextEvent.startTime}
+              </p>
+              <p className="mt-2 text-sm text-gray-700">
+                Nächstes Event startet in: {timeRemaining || 'Lädt...'}
+              </p>
             </>
           ) : (
-            <p>No current happening found for {selectedCity}.</p>
+            <p>No current or upcoming happening found for {selectedCity}.</p>
           )}
         </div>
 
@@ -295,7 +387,7 @@ export default function HomePage() {
             </Masonry>
           </div>
 
-          {currentEvent && isInside && ( // isInside aus useIsInsideGeofence
+          {currentEvent && isInside && (
             <div className="mt-auto">
               <h3 className="text-lg font-semibold mb-2">Share Content / Chat</h3>
               <div className="flex mb-2">
@@ -314,7 +406,6 @@ export default function HomePage() {
                   Send
                 </button>
               </div>
-              {/* ÄNDERUNG: Cloudinary Widget durch einfaches File-Input ersetzen */}
               <input
                 type="file"
                 accept="image/*,video/*"
