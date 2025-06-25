@@ -1,18 +1,14 @@
 // components/MapComponent.js
-import { MapContainer, TileLayer, Circle, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css'; // Leaflet CSS importieren
-import L from 'leaflet';
+import { setupLeafletIcons } from '../lib/leafletConfig'; // Importiere die Konfigurationsfunktion
 import GeoCircleMarker from './GeoCircleMarker';
+import UserLocationMarker from './UserLocationMarker'; // Importiere die neue Komponente
 
-// Fix default icon issues with Webpack
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: '/leaflet/images/marker-icon-2x.png',
-  iconUrl: '/leaflet/images/marker-icon.png',
-  shadowUrl: '/leaflet/images/marker-shadow.png',
-});
+// Führe die Leaflet-Icon-Konfiguration einmalig aus
+setupLeafletIcons();
 
-export default function MapComponent({ center, radius, userLocation, isActive }) { // NEU: isActive als Prop hinzufügen
+export default function MapComponent({ center, radius, userLocation, isActive }) {
   if (!center || !radius) {
     return <div className="flex items-center justify-center h-full text-gray-500">Loading map...</div>;
   }
@@ -27,14 +23,9 @@ export default function MapComponent({ center, radius, userLocation, isActive })
         center={center}
         radius={radius}
         userLocation={userLocation}
-        isActive={isActive} /* NEU: isActive an GeoCircleMarker weitergeben */
+        isActive={isActive}
       />
-
-      {userLocation && (
-        <Marker position={[userLocation.latitude, userLocation.longitude]}>
-          <Popup>Your Location</Popup>
-        </Marker>
-      )}
+      <UserLocationMarker userLocation={userLocation} /> {/* Verwende die neue Komponente */}
     </MapContainer>
   );
 }
