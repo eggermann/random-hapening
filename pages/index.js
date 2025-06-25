@@ -16,6 +16,7 @@ export default function HomePage() {
   const [chatInput, setChatInput] = useState('');
   const [timeRemaining, setTimeRemaining] = useState(null); // NEU: State für den Countdown
   const contentEndRef = useRef(null);
+  const [pastEvents, setPastEvents] = useState([]);
 
   const cities = [
     { name: 'Berlin', coords: [52.5200, 13.4050] },
@@ -336,6 +337,23 @@ export default function HomePage() {
       <main className="flex-grow container mx-auto p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-lg shadow-md p-4">
           <h2 className="text-xl font-semibold mb-4">Current Happening</h2>
+
+          {/* Past Events Teaser */}
+          {pastEvents.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold mb-2">Past Events in {selectedCity}</h3>
+              <ul className="space-y-2">
+                {pastEvents.slice(0, 3).map(ev => (
+                  <li key={ev.id} className="border rounded p-2 bg-gray-50 hover:bg-gray-100">
+                    <a href={`/archive#event-${ev.id}`} className="text-blue-600 hover:underline">
+                      {ev.name} ({new Date(ev.start_time).toLocaleDateString()})
+                    </a>
+                    <div className="text-xs text-gray-600">{ev.description}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="mb-4">
             <label htmlFor="city-select" className="block text-sm font-medium text-gray-700">Select City:</label>
             <select
