@@ -1,28 +1,24 @@
 // pages/api/location-meta.js
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { supabase } from '../../lib/supabase';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
-  const { lat, lng, address } = req.query;
+  const { lat, lng, address, eventId } = req.query;
 
   if (!lat || !lng) {
     return res.status(400).json({ message: 'Latitude and longitude are required.' });
   }
 
   const geminiApiKey = process.env.GEMINI_API_KEY;
-  console.log('GEMINI_API_KEY----> :', geminiApiKey ? 'Loaded' : 'Not Found'); // Safer debugging
-
   if (!geminiApiKey) {
-    console.error('GEMINI_API_KEY is not set in environment variables. Please check your .env.local file.');
     return res.status(500).json({ message: 'Server configuration error: Gemini API key missing.' });
   }
 
   const genAI = new GoogleGenerativeAI(geminiApiKey);
-  
-  // --- FIX: Use a current and valid model name ---
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
   try {
@@ -33,36 +29,45 @@ export default async function handler(req, res) {
     const response = await result.response;
     const text = response.text();
 
-    // The response from newer models with JSON instructions is generally more reliable.
-    // This robust parsing is still a good practice.
     let jsonMatch = text.match(/\{[^]*\}/);
     let parsedData;
-
     if (jsonMatch) {
       try {
         parsedData = JSON.parse(jsonMatch[0]);
       } catch (parseError) {
-        console.error('Failed to parse Gemini JSON response:', parseError, 'Raw text:', text);
         parsedData = {
           codeWord: "Mystery",
           teaser: "A place of undiscovered wonders."
         };
       }
     } else {
-      console.warn('No JSON found in Gemini response, providing fallback. Raw text:', text);
       parsedData = {
-        codeWord: "Secret",
-        teaser: "A location holding untold stories."
+        codeWord: "Mystery",
+        teaser: "A place of undiscovered wonders."
       };
     }
 
-    res.status(200).json({
-      codeWord: parsedData.codeWord,
-      teaser: parsedData.teaser
-    });
+    // Fetch street address from Nominatim
+    const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
+    const nominatimRes = await fetch(nominatimUrl, { headers: { 'User-Agent': 'HappeningRoulette/1.0' } });
+    const nominatimData = await nominatimRes.json();
+    const street = nominatimData.address?.road || nominatimData.display_name;
 
+    // Optionally update event in Supabase
+    if (eventId) {
+      await supabase
+        .from('events')
+        .update({ street, codeword: parsedData.codeWord })
+        .eq('id', eventId);
+    }
+
+    res.status(200).json({
+      street,
+      codeword: parsedData.codeWord,
+      teaser: parsedData.teaser,
+      nominatim: nominatimData
+    });
   } catch (error) {
-    console.error('Error calling Gemini API:', error);
-    res.status(500).json({ message: 'Error generating location meta data', error: error.message });
+    res.status(500).json({ message: "Error generating location meta data", error: error.message });
   }
 }
