@@ -1,6 +1,6 @@
 // pages/index.js
 import dynamic from 'next/dynamic';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Masonry from 'react-masonry-css';
 import { useIsInsideGeofence } from '../lib/useIsInside';
 import { supabase } from '../lib/supabase';
@@ -102,7 +102,7 @@ export default function HomePage() {
               city: selectedCity,
               latitude: randomLat,
               longitude: randomLng,
-              radius: 1000,
+              radius: 50,
               date: nextWeek.toISOString(),
               startTime: nextWeek.toISOString(),
               endTime: new Date(nextWeek.getTime() + 2 * 60 * 60 * 1000).toISOString(),
@@ -153,8 +153,8 @@ export default function HomePage() {
 
   // Effekt zum Abrufen von Live-Inhalten für das aktuelle Event über Supabase Realtime
   useEffect(() => {
+    setLiveContent([]); // Always clear live feed when city or event changes
     if (!currentEvent) {
-      setLiveContent([]);
       return;
     }
 
@@ -217,7 +217,7 @@ export default function HomePage() {
       supabase.removeChannel(postsChannel);
       supabase.removeChannel(chatsChannel);
     };
-  }, [currentEvent]);
+  }, [currentEvent, selectedCity]);
 
   // Chat-Nachricht senden
   const handleSendChat = async () => {
@@ -301,11 +301,11 @@ export default function HomePage() {
   };
 
   // Bestimme die anzuzeigenden Kartenkoordinaten und den Radius
-  const mapCenter = currentEvent
-    ? [currentEvent.latitude, currentEvent.longitude]
-    : nextEvent
-      ? [nextEvent.latitude, nextEvent.longitude]
-      : cities.find(c => c.name === selectedCity)?.coords || [52.5200, 13.4050]; // Standard Berlin
+  const mapCenter = useMemo(() => {
+    if (currentEvent) return [currentEvent.latitude, currentEvent.longitude];
+    if (nextEvent) return [nextEvent.latitude, nextEvent.longitude];
+    return cities.find(c => c.name === selectedCity)?.coords || [52.5200, 13.4050];
+  }, [currentEvent, nextEvent, selectedCity]);
 
   const mapRadius = currentEvent
     ? currentEvent.radius
@@ -384,10 +384,19 @@ export default function HomePage() {
           ) : nextEvent ? (
             <>
               <p className="mb-2">
-                **Nächstes Event:** {nextEvent.city} (Lat: {nextEvent.latitude.toFixed(4)}, Lng: {nextEvent.longitude.toFixed(4)})
+                **Upcoming Event (Geofan):** {nextEvent.city} (Lat: {nextEvent.latitude.toFixed(4)}, Lng: {nextEvent.longitude.toFixed(4)})
+                <br />
+                <span className="text-sm text-gray-600">
+                  Adresse: <span id="next-event-address">Wird geladen...</span>
+                </span>
               </p>
               <p className="mb-2">
                 **Startet am:** {nextEvent.date && !isNaN(new Date(nextEvent.date)) ? new Date(nextEvent.date).toLocaleDateString() : 'n/a'} um {nextEvent.startTime && !isNaN(new Date(nextEvent.startTime)) ? new Date(nextEvent.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'n/a'}
+              </p>
+              <p className="mb-2">
+                <span className="text-sm text-gray-600">
+                  Adresse: {nextEvent.latitude && nextEvent.longitude ? <AddressLoader lat={nextEvent.latitude} lng={nextEvent.longitude} /> : "n/a"}
+                </span>
               </p>
               <p className="mt-2 text-sm text-gray-700">
                 Nächstes Event startet in: {timeRemaining || 'Lädt...'}
@@ -457,4 +466,20 @@ export default function HomePage() {
       </footer>
     </div>
   );
+}
+
+function AddressLoader({ lat, lng }) {
+  const [address, setAddress] = React.useState("Wird geladen...");
+  React.useEffect(() => {
+    setAddress("Wird geladen...");
+    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+      .then(res => res.json())
+      .then(data => {
+        setAddress(data.display_name || "Adresse nicht gefunden");
+      })
+      .catch(() => {
+        setAddress("Adresse nicht gefunden");
+      });
+  }, [lat, lng]);
+  return <span>{address}</span>;
 }
