@@ -43,6 +43,9 @@ export default function HomePage() {
 
   // Effekt zum Abrufen des aktuellen Events und des nächsten Events
   useEffect(() => {
+
+
+
     const fetchEvents = async () => {
       try {
         const response = await fetch(`/api/event/active?city=${selectedCity}`);
@@ -50,7 +53,7 @@ export default function HomePage() {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json(); // Erwartet { activeEvent, nextUpcomingEvent }
-
+console.log("Zufälliges Event generiert:",data);
         if (data.activeEvent) {
           setCurrentEvent({
             id: data.activeEvent.id,
@@ -65,6 +68,7 @@ export default function HomePage() {
           setNextEvent(null); // Kein nächstes Event, wenn ein aktuelles aktiv ist
         } else {
           setCurrentEvent(null);
+       
           if (data.nextUpcomingEvent) {
             setNextEvent({
               id: data.nextUpcomingEvent.id,
@@ -72,12 +76,37 @@ export default function HomePage() {
               latitude: data.nextUpcomingEvent.latitude,
               longitude: data.nextUpcomingEvent.longitude,
               radius: data.nextUpcomingEvent.radius,
-              date: new Date(data.nextUpcomingEvent.starts_at),
-              startTime: new Date(data.nextUpcomingEvent.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              endTime: new Date(data.nextUpcomingEvent.ends_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              date: data.nextUpcomingEvent.starts_at,
+              startTime: data.nextUpcomingEvent.starts_at,
+              endTime: data.nextUpcomingEvent.ends_at,
             });
           } else {
-            setNextEvent(null);
+            // Kein aktives oder zukünftiges Event: Generiere ein zufälliges Event für die nächste Woche
+            // Zufällige Koordinaten in der gewählten Stadt
+            const cityObj = cities.find(c => c.name === selectedCity);
+            const baseLat = cityObj?.coords[0] || 52.5200;
+            const baseLng = cityObj?.coords[1] || 13.4050;
+            const randomOffset = () => (Math.random() - 0.5) * 0.02; // ~2km Radius
+
+            const randomLat = baseLat + randomOffset();
+            const randomLng = baseLng + randomOffset();
+
+            const nextWeek = new Date();
+            nextWeek.setDate(nextWeek.getDate() + 7);
+            nextWeek.setHours(18, 0, 0, 0); // 18:00 Uhr nächste Woche
+
+
+
+            setNextEvent({
+              id: 'random',
+              city: selectedCity,
+              latitude: randomLat,
+              longitude: randomLng,
+              radius: 1000,
+              date: nextWeek.toISOString(),
+              startTime: nextWeek.toISOString(),
+              endTime: new Date(nextWeek.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+            });
           }
         }
       } catch (error) {
@@ -354,7 +383,7 @@ export default function HomePage() {
                 **Nächstes Event:** {nextEvent.city} (Lat: {nextEvent.latitude.toFixed(4)}, Lng: {nextEvent.longitude.toFixed(4)})
               </p>
               <p className="mb-2">
-                **Startet am:** {nextEvent.date.toLocaleDateString()} um {nextEvent.startTime}
+                **Startet am:** {nextEvent.date && !isNaN(new Date(nextEvent.date)) ? new Date(nextEvent.date).toLocaleDateString() : 'n/a'} um {nextEvent.startTime && !isNaN(new Date(nextEvent.startTime)) ? new Date(nextEvent.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'n/a'}
               </p>
               <p className="mt-2 text-sm text-gray-700">
                 Nächstes Event startet in: {timeRemaining || 'Lädt...'}

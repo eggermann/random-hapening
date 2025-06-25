@@ -24,8 +24,8 @@ export default async function handler(req, res) {
       .from('events')
       .select('*')
       .eq('city', city)
-      .lte('starts_at', nowISO) // starts_at ist in der Vergangenheit oder jetzt
-      .gte('ends_at', nowISO)   // ends_at ist in der Zukunft oder jetzt
+      .lte('start_time', nowISO) // start_time ist in der Vergangenheit oder jetzt
+      .gte('end_time', nowISO)   // end_time ist in der Zukunft oder jetzt
       .limit(1);
 
     if (activeError) {
@@ -35,16 +35,12 @@ export default async function handler(req, res) {
 
     if (activeEvents && activeEvents.length > 0) {
       const eventData = activeEvents[0];
-      // SICHERHEITSCHECK: Prüfen, ob location und coordinates existieren und korrekt sind
-      if (eventData.location && eventData.location.coordinates && eventData.location.coordinates.length === 2) {
-        activeEvent = {
-          ...eventData,
-          latitude: eventData.location.coordinates[1], // GeoJSON ist [lng, lat]
-          longitude: eventData.location.coordinates[0],
-        };
-      } else {
-        console.warn(`Active event ${eventData.id} for city ${city} has missing or malformed location data. Skipping.`);
-      }
+      // Fallback: Nutze latitude/longitude falls location fehlt
+      activeEvent = {
+        ...eventData,
+        latitude: eventData.latitude ?? (eventData.location?.coordinates?.[1] ?? null),
+        longitude: eventData.longitude ?? (eventData.location?.coordinates?.[0] ?? null),
+      };
     }
 
     // 2. Suche nach dem nächsten bevorstehenden Event für die angegebene Stadt
@@ -52,8 +48,8 @@ export default async function handler(req, res) {
       .from('events')
       .select('*')
       .eq('city', city)
-      .gt('starts_at', activeEvent ? activeEvent.ends_at : nowISO) // Startet nach dem aktiven Event oder nach jetzt
-      .order('starts_at', { ascending: true }) // Das früheste zukünftige Event
+      .gt('start_time', activeEvent ? activeEvent.end_time : nowISO) // Startet nach dem aktiven Event oder nach jetzt
+      .order('start_time', { ascending: true }) // Das früheste zukünftige Event
       .limit(1);
 
     if (upcomingError) {
@@ -63,16 +59,12 @@ export default async function handler(req, res) {
 
     if (upcomingEvents && upcomingEvents.length > 0) {
       const eventData = upcomingEvents[0];
-      // SICHERHEITSCHECK: Prüfen, ob location und coordinates existieren und korrekt sind
-      if (eventData.location && eventData.location.coordinates && eventData.location.coordinates.length === 2) {
-        nextUpcomingEvent = {
-          ...eventData,
-          latitude: eventData.location.coordinates[1],
-          longitude: eventData.location.coordinates[0],
-        };
-      } else {
-        console.warn(`Upcoming event ${eventData.id} for city ${city} has missing or malformed location data. Skipping.`);
-      }
+      // Fallback: Nutze latitude/longitude falls location fehlt
+      nextUpcomingEvent = {
+        ...eventData,
+        latitude: eventData.latitude ?? (eventData.location?.coordinates?.[1] ?? null),
+        longitude: eventData.longitude ?? (eventData.location?.coordinates?.[0] ?? null),
+      };
     }
 
     res.status(200).json({ activeEvent, nextUpcomingEvent });
