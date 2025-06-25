@@ -258,7 +258,8 @@ export default function HomePage() {
                 <MapComponent
                   center={[currentEvent.latitude, currentEvent.longitude]}
                   radius={currentEvent.radius}
-                  userLocation={userLocation} // NEU: userLocation an MapComponent weitergeben
+                  userLocation={userLocation}
+                  isActive={isInside} {/* NEU: isInside an MapComponent weitergeben */}
                 />
               </div>
               {userLocation && (
