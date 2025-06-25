@@ -29,8 +29,8 @@ export default async function handler(req, res) {
       .limit(1);
 
     if (activeError) {
-      console.error('Supabase active event error:', activeError);
-      return res.status(500).json({ message: 'Error fetching active event', error: activeError.message });
+      console.error('Supabase active event query failed:', activeError); // Verbessertes Logging
+      return res.status(500).json({ message: 'Error fetching active event from database', error: activeError.message });
     }
 
     if (activeEvents && activeEvents.length > 0) {
@@ -43,8 +43,7 @@ export default async function handler(req, res) {
           longitude: eventData.location.coordinates[0],
         };
       } else {
-        console.warn(`Active event ${eventData.id} has missing or malformed location data. Skipping this event.`);
-        // Das Event wird nicht als activeEvent gesetzt, um den Fehler zu vermeiden.
+        console.warn(`Active event ${eventData.id} for city ${city} has missing or malformed location data. Skipping.`);
       }
     }
 
@@ -58,8 +57,8 @@ export default async function handler(req, res) {
       .limit(1);
 
     if (upcomingError) {
-      console.error('Supabase upcoming event error:', upcomingError);
-      return res.status(500).json({ message: 'Error fetching upcoming event', error: upcomingError.message });
+      console.error('Supabase upcoming event query failed:', upcomingError); // Verbessertes Logging
+      return res.status(500).json({ message: 'Error fetching upcoming event from database', error: upcomingError.message });
     }
 
     if (upcomingEvents && upcomingEvents.length > 0) {
@@ -72,16 +71,14 @@ export default async function handler(req, res) {
           longitude: eventData.location.coordinates[0],
         };
       } else {
-        console.warn(`Upcoming event ${eventData.id} has missing or malformed location data. Skipping this event.`);
-        // Das Event wird nicht als nextUpcomingEvent gesetzt, um den Fehler zu vermeiden.
+        console.warn(`Upcoming event ${eventData.id} for city ${city} has missing or malformed location data. Skipping.`);
       }
     }
 
-    // Gib beide Events zurück
     res.status(200).json({ activeEvent, nextUpcomingEvent });
 
   } catch (error) {
-    console.error('API error:', error);
-    res.status(500).json({ message: 'Internal server error', error: error.message });
+    console.error('Unhandled API error in /api/event/active.js:', error); // Verbessertes Logging
+    res.status(500).json({ message: 'Internal server error in API route', error: error.message });
   }
 }
