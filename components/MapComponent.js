@@ -27,7 +27,7 @@ export default function MapComponent({ center, radius, userLocation, isActive })
         center={center}
         radius={radius}
         userLocation={userLocation}
-        isActive={isActive} {/* NEU: isActive an GeoCircleMarker weitergeben */}
+        isActive={isActive} /* NEU: isActive an GeoCircleMarker weitergeben */
       />
 
       {userLocation && (
