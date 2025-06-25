@@ -309,7 +309,7 @@ export default function HomePage() {
               id="city-select"
               className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
               value={selectedCity}
-              onChange={(e) => setSelectedCity(e.target.value)} {/* KORREKTUR: setSelected zu setSelectedCity */}
+              onChange={(e) => setSelectedCity(e.target.value)}
             >
               {cities.map((city) => (
                 <option key={city.name} value={city.name}>{city.name}</option>
