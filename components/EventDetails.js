@@ -37,7 +37,7 @@ export default function EventDetails({ currentEvent, nextEvent, timeRemaining, u
             </span>
           </p>
           <p className="mb-2">
-            **Startet am:** {nextEvent.date && !isNaN(new Date(nextEvent.date)) ? new Date(nextEvent.date).toLocaleDateString() : 'n/a'} um {nextEvent.startTime && !isNaN(new Date(nextEvent.startTime)) ? new Date(nextEvent.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'n/a'}
+            **Startet am:** {nextEvent.date && !isNaN(new Date(nextEvent.date)) ? new Date(nextEvent.date).toLocaleDateString() : 'n/a'} um {nextEvent.startTime || 'n/a'} {/* KORREKTUR: nextEvent.startTime direkt verwenden */}
           </p>
           <p className="mt-2 text-sm text-gray-700">
             Nächstes Event startet in: {timeRemaining || 'Lädt...'}

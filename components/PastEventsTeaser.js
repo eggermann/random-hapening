@@ -39,7 +39,7 @@ export default function PastEventsTeaser({ selectedCity }) {
         {pastEvents.map(ev => (
           <li key={ev.id} className="border rounded p-2 bg-gray-50 hover:bg-gray-100">
             <a href={`/archive#event-${ev.id}`} className="text-blue-600 hover:underline">
-              {ev.name} ({new Date(ev.starts_at).toLocaleDateString()})
+              {ev.name} ({ev.starts_at ? new Date(ev.starts_at).toLocaleDateString() : 'Datum unbekannt'}) {/* KORREKTUR: Prüfung auf gültiges Datum */}
             </a>
             <div className="text-xs text-gray-600">{ev.description}</div>
           </li>
