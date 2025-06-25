@@ -1,7 +1,5 @@
 // pages/archive.js
 import { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import Link from 'next/link';
 
 export default function ArchivePage() {
@@ -13,18 +11,12 @@ export default function ArchivePage() {
     const fetchArchivedEvents = async () => {
       try {
         setLoading(true);
-        const today = new Date();
-        const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0);
-
-        // Abfrage für Events, die vor heute stattgefunden haben
-        const q = query(
-          collection(db, 'events'),
-          where('date', '<', startOfDay),
-          orderBy('date', 'desc')
-        );
-        const querySnapshot = await getDocs(q);
-        const events = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setArchivedEvents(events);
+        const response = await fetch('/api/event/archive'); // New API endpoint for archive
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        setArchivedEvents(data.events || []);
       } catch (err) {
         console.error("Error fetching archived events:", err);
         setError("Failed to load archived events.");
@@ -63,7 +55,7 @@ export default function ArchivePage() {
             <div key={event.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow duration-300">
               <h3 className="text-xl font-semibold text-gray-900 mb-2">{event.city} Happening</h3>
               <p className="text-gray-700 mb-1">
-                **Date:** {new Date(event.date.seconds * 1000).toLocaleDateString()}
+                **Date:** {new Date(event.date).toLocaleDateString()}
               </p>
               <p className="text-gray-700 mb-1">
                 **Time:** {event.startTime} - {event.endTime}

@@ -1,10 +1,9 @@
 // pages/index.js
 import dynamic from 'next/dynamic';
-import { useState, useEffect, useRef } from 'react';
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { CldUploadWidget } from 'next-cloudinary';
 import Masonry from 'react-masonry-css';
+import { useIsInsideGeofence } from '../lib/useIsInside'; // Import the new hook
 
 // Dynamischer Import für MapComponent, da Leaflet nur im Browser läuft
 const MapComponent = dynamic(() => import('../components/MapComponent'), { ssr: false });
@@ -14,7 +13,6 @@ export default function HomePage() {
   const [currentEvent, setCurrentEvent] = useState(null);
   const [liveContent, setLiveContent] = useState([]);
   const [chatInput, setChatInput] = useState('');
-  const [userLocation, setUserLocation] = useState(null); // { lat, lng }
   const contentEndRef = useRef(null);
 
   const cities = [
@@ -26,132 +24,123 @@ export default function HomePage() {
     { name: 'Basel', coords: [47.5596, 7.5886] },
   ];
 
-  // Effekt zum Abrufen des aktuellen Events
+  // Use the new geofence hook
+  const { isInside, userLocation } = useIsInsideGeofence(
+    currentEvent ? { latitude: currentEvent.latitude, longitude: currentEvent.longitude } : null,
+    currentEvent ? currentEvent.radius : null
+  );
+
+  // Effekt zum Abrufen des aktuellen Events über API
   useEffect(() => {
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0);
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
-
-    // Abfrage für Events, die heute stattfinden und zur ausgewählten Stadt gehören
-    const q = query(
-      collection(db, 'events'),
-      where('city', '==', selectedCity),
-      where('date', '>=', startOfDay),
-      where('date', '<=', endOfDay),
-      orderBy('date', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        // Nehmen Sie das neueste Event für heute
-        const eventData = snapshot.docs[0].data();
-        setCurrentEvent({ id: snapshot.docs[0].id, ...eventData });
-      } else {
+    const fetchCurrentEvent = async () => {
+      try {
+        const response = await fetch(`/api/event/active?city=${selectedCity}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        setCurrentEvent(data.event || null);
+      } catch (error) {
+        console.error("Error fetching current event:", error);
         setCurrentEvent(null);
       }
-    });
+    };
 
-    return () => unsubscribe();
+    fetchCurrentEvent();
+    // Optional: Polling für Event-Updates, falls Events sich tagsüber ändern könnten
+    // const interval = setInterval(fetchCurrentEvent, 60000); // Alle 60 Sekunden
+    // return () => clearInterval(interval);
   }, [selectedCity]);
 
-  // Effekt zum Abrufen von Live-Inhalten für das aktuelle Event
+  // Effekt zum Abrufen von Live-Inhalten für das aktuelle Event über API
   useEffect(() => {
     if (currentEvent) {
-      const q = query(
-        collection(db, 'content'),
-        where('eventId', '==', currentEvent.id),
-        orderBy('timestamp', 'asc')
-      );
-
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const content = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setLiveContent(content);
-        // Scrollen zum neuesten Inhalt
-        if (contentEndRef.current) {
-          contentEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      const fetchLiveContent = async () => {
+        try {
+          const response = await fetch(`/api/event/${currentEvent.id}/posts`);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const data = await response.json();
+          setLiveContent(data.posts || []);
+          // Scrollen zum neuesten Inhalt
+          if (contentEndRef.current) {
+            contentEndRef.current.scrollIntoView({ behavior: 'smooth' });
+          }
+        } catch (error) {
+          console.error("Error fetching live content:", error);
+          setLiveContent([]);
         }
-      });
+      };
 
-      return () => unsubscribe();
+      fetchLiveContent();
+      // Polling für Live-Inhalte
+      const interval = setInterval(fetchLiveContent, 5000); // Alle 5 Sekunden
+      return () => clearInterval(interval);
     } else {
       setLiveContent([]);
     }
   }, [currentEvent]);
 
-  // Effekt zum Abrufen des Benutzerstandorts
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          });
-        },
-        (error) => {
-          console.error("Error getting user location:", error);
-          // Optional: Fallback oder Fehlermeldung anzeigen
-        }
-      );
-    }
-  }, []);
-
-  // Funktion zum Prüfen, ob der Benutzer im Geofence ist
-  const isUserInGeofence = () => {
-    if (!userLocation || !currentEvent) return false;
-    const R = 6371e3; // Erdradius in Metern
-    const lat1 = userLocation.lat * Math.PI / 180;
-    const lat2 = currentEvent.latitude * Math.PI / 180;
-    const deltaLat = (currentEvent.latitude - userLocation.lat) * Math.PI / 180;
-    const deltaLng = (currentEvent.longitude - userLocation.lng) * Math.PI / 180;
-
-    const a =
-      Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-      Math.cos(lat1) * Math.cos(lat2) *
-      Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    const distance = R * c; // Distanz in Metern
-    return distance <= currentEvent.radius; // Radius ist 100m
-  };
-
   // Chat-Nachricht senden
   const handleSendChat = async () => {
     if (chatInput.trim() === '' || !currentEvent) return;
-    // Optional: isUserInGeofence() prüfen, bevor gesendet wird
-    // if (!isUserInGeofence()) { alert('Sie sind nicht im Event-Bereich!'); return; }
+    if (!isInside) {
+      alert('Sie sind nicht im Event-Bereich und können keine Nachrichten senden!');
+      return;
+    }
 
     try {
-      await addDoc(collection(db, 'content'), {
-        eventId: currentEvent.id,
-        type: 'chat',
-        text: chatInput,
-        timestamp: serverTimestamp(),
-        // Optional: user: 'Anonymous' oder User-ID
+      const response = await fetch(`/api/event/${currentEvent.id}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: chatInput }),
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       setChatInput('');
+      // Inhalte werden durch Polling aktualisiert
     } catch (e) {
-      console.error("Error adding document: ", e);
+      console.error("Error sending chat message: ", e);
+      alert("Fehler beim Senden der Nachricht.");
     }
   };
 
   // Callback nach erfolgreichem Cloudinary-Upload
-  const handleUploadSuccess = async (result) => {
+  const handleUploadSuccess = useCallback(async (result) => {
     if (result.event === 'success' && currentEvent) {
+      if (!isInside) {
+        alert('Sie sind nicht im Event-Bereich und können keine Medien hochladen!');
+        return;
+      }
+
       const { secure_url, resource_type } = result.info;
       try {
-        await addDoc(collection(db, 'content'), {
-          eventId: currentEvent.id,
-          type: resource_type === 'image' ? 'image' : 'video', // Oder spezifischer
-          url: secure_url,
-          timestamp: serverTimestamp(),
-          // Optional: user: 'Anonymous'
+        const response = await fetch(`/api/event/${currentEvent.id}/post`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: resource_type === 'image' ? 'image' : 'video',
+            url: secure_url,
+          }),
         });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        // Inhalte werden durch Polling aktualisiert
       } catch (e) {
         console.error("Error adding media content: ", e);
+        alert("Fehler beim Hochladen der Medien.");
       }
     }
-  };
+  }, [currentEvent, isInside]);
 
   const breakpointColumnsObj = {
     default: 4,
@@ -196,7 +185,7 @@ export default function HomePage() {
                 **Location:** {currentEvent.city} (Lat: {currentEvent.latitude.toFixed(4)}, Lng: {currentEvent.longitude.toFixed(4)})
               </p>
               <p className="mb-2">
-                **Date:** {new Date(currentEvent.date.seconds * 1000).toLocaleDateString()}
+                **Date:** {new Date(currentEvent.date).toLocaleDateString()}
               </p>
               <p className="mb-4">
                 **Time:** {currentEvent.startTime} - {currentEvent.endTime}
@@ -205,11 +194,12 @@ export default function HomePage() {
                 <MapComponent
                   center={[currentEvent.latitude, currentEvent.longitude]}
                   radius={currentEvent.radius}
+                  userLocation={userLocation}
                 />
               </div>
               {userLocation && (
-                <p className={`mt-2 text-sm ${isUserInGeofence() ? 'text-green-600' : 'text-red-600'}`}>
-                  You are {isUserInGeofence() ? 'inside' : 'outside'} the geofence.
+                <p className={`mt-2 text-sm ${isInside ? 'text-green-600' : 'text-red-600'}`}>
+                  You are {isInside ? 'inside' : 'outside'} the geofence.
                 </p>
               )}
             </>
@@ -232,7 +222,7 @@ export default function HomePage() {
                   {item.type === 'image' && <img src={item.url} alt="Content" className="w-full h-auto rounded-md" />}
                   {item.type === 'video' && <video src={item.url} controls className="w-full h-auto rounded-md" />}
                   <p className="text-xs text-gray-500 mt-1">
-                    {item.timestamp?.toDate().toLocaleTimeString()}
+                    {new Date(item.timestamp).toLocaleTimeString()}
                   </p>
                 </div>
               ))}
@@ -240,7 +230,7 @@ export default function HomePage() {
             </Masonry>
           </div>
 
-          {currentEvent && isUserInGeofence() && ( // Nur anzeigen, wenn im Geofence
+          {currentEvent && isInside && ( // Nur anzeigen, wenn im Geofence
             <div className="mt-auto">
               <h3 className="text-lg font-semibold mb-2">Share Content / Chat</h3>
               <div className="flex mb-2">
@@ -282,7 +272,7 @@ export default function HomePage() {
             </div>
           )}
           {!currentEvent && <p className="text-center text-gray-500">No active event to share content.</p>}
-          {currentEvent && !isUserInGeofence() && <p className="text-center text-gray-500">Move closer to the event to share content!</p>}
+          {currentEvent && !isInside && <p className="text-center text-gray-500">Move closer to the event to share content!</p>}
         </div>
       </main>
 
