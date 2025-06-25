@@ -34,16 +34,21 @@ export default async function handler(req, res) {
     }
 
     if (activeEvents && activeEvents.length > 0) {
-      activeEvent = {
-        ...activeEvents[0],
-        latitude: activeEvents[0].location.coordinates[1], // GeoJSON ist [lng, lat]
-        longitude: activeEvents[0].location.coordinates[0],
-      };
+      const eventData = activeEvents[0];
+      // SICHERHEITSCHECK: Prüfen, ob location und coordinates existieren und korrekt sind
+      if (eventData.location && eventData.location.coordinates && eventData.location.coordinates.length === 2) {
+        activeEvent = {
+          ...eventData,
+          latitude: eventData.location.coordinates[1], // GeoJSON ist [lng, lat]
+          longitude: eventData.location.coordinates[0],
+        };
+      } else {
+        console.warn(`Active event ${eventData.id} has missing or malformed location data. Skipping this event.`);
+        // Das Event wird nicht als activeEvent gesetzt, um den Fehler zu vermeiden.
+      }
     }
 
     // 2. Suche nach dem nächsten bevorstehenden Event für die angegebene Stadt
-    // Dies ist entweder das nächste Event nach jetzt, wenn kein Event aktiv ist,
-    // oder das nächste Event nach dem Ende des aktiven Events.
     const { data: upcomingEvents, error: upcomingError } = await supabase
       .from('events')
       .select('*')
@@ -58,11 +63,18 @@ export default async function handler(req, res) {
     }
 
     if (upcomingEvents && upcomingEvents.length > 0) {
-      nextUpcomingEvent = {
-        ...upcomingEvents[0],
-        latitude: upcomingEvents[0].location.coordinates[1],
-        longitude: upcomingEvents[0].location.coordinates[0],
-      };
+      const eventData = upcomingEvents[0];
+      // SICHERHEITSCHECK: Prüfen, ob location und coordinates existieren und korrekt sind
+      if (eventData.location && eventData.location.coordinates && eventData.location.coordinates.length === 2) {
+        nextUpcomingEvent = {
+          ...eventData,
+          latitude: eventData.location.coordinates[1],
+          longitude: eventData.location.coordinates[0],
+        };
+      } else {
+        console.warn(`Upcoming event ${eventData.id} has missing or malformed location data. Skipping this event.`);
+        // Das Event wird nicht als nextUpcomingEvent gesetzt, um den Fehler zu vermeiden.
+      }
     }
 
     // Gib beide Events zurück
