@@ -153,8 +153,11 @@ export default function HomePage() {
         Tailwind funktioniert!
       </div>
 
-      <main className="flex-grow container mx-auto p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-lg shadow-md p-4">
+      <main
+        className="flex-grow container mx-auto p-4 flex flex-col bg-cover bg-center"
+        style={{ backgroundImage: "url('/datas/markers 3.jpg')" }}
+      >
+        <div className="flex-1 flex flex-col bg-white/60 backdrop-blur-md rounded-lg shadow-md p-4 mb-4">
           <h2 className="text-xl font-semibold mb-4">Current Happening</h2>
 
           <PastEventsTeaser selectedCity={selectedCity} />
@@ -165,8 +168,8 @@ export default function HomePage() {
             cities={cities}
           />
 
-          {/* Karte wird immer gerendert */}
-          <div className="h-96 w-full rounded-md overflow-hidden mb-4">
+          {/* Karte jetzt 100% Höhe */}
+          <div className="h-[400px] w-full rounded-md overflow-hidden mb-4">
             <MapComponent
               center={mapCenter}
               radius={mapRadius}
@@ -184,7 +187,7 @@ export default function HomePage() {
           />
         </div>
 
-        <div className="lg:col-span-1 bg-white rounded-lg shadow-md p-4 flex flex-col">
+        <div className="bg-white/60 backdrop-blur-md rounded-lg shadow-md p-4 flex flex-col">
           <h2 className="text-xl font-semibold mb-4">Live Feed</h2>
           <LiveFeed liveContent={liveContent} contentEndRef={contentEndRef} />
           <ContentShareForm
