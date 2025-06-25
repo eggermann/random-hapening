@@ -1,11 +1,12 @@
 // pages/index.js
 import dynamic from 'next/dynamic';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { CldUploadWidget } from 'next-cloudinary';
+// import { CldUploadWidget } from 'next-cloudinary'; // ENTFERNT
 import Masonry from 'react-masonry-css';
-import { useIsInsideGeofence } from '../lib/useIsInside'; // Import the new hook
+import { useIsInsideGeofence } from '../lib/useIsInside'; // Korrekter Importname
+import { supabase } from '../lib/supabase'; // Supabase importieren
 
-// Dynamischer Import für MapComponent, da Leaflet nur im Browser läuft
+// Dynamischer Import für MapComponent
 const MapComponent = dynamic(() => import('../components/MapComponent'), { ssr: false });
 
 export default function HomePage() {
@@ -24,7 +25,7 @@ export default function HomePage() {
     { name: 'Basel', coords: [47.5596, 7.5886] },
   ];
 
-  // Use the new geofence hook
+  // NEU: useIsInsideGeofence Hook verwenden
   const { isInside, userLocation } = useIsInsideGeofence(
     currentEvent ? { latitude: currentEvent.latitude, longitude: currentEvent.longitude } : null,
     currentEvent ? currentEvent.radius : null
@@ -39,7 +40,21 @@ export default function HomePage() {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        setCurrentEvent(data.event || null);
+        if (data.event) {
+          // ÄNDERUNG: Datenstruktur von der API anpassen
+          setCurrentEvent({
+            id: data.event.id,
+            city: data.event.city,
+            latitude: data.event.latitude, // API liefert bereits aufbereitet
+            longitude: data.event.longitude, // API liefert bereits aufbereitet
+            radius: data.event.radius,
+            date: new Date(data.event.starts_at), // starts_at als Datum verwenden
+            startTime: new Date(data.event.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            endTime: new Date(data.event.ends_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          });
+        } else {
+          setCurrentEvent(null);
+        }
       } catch (error) {
         console.error("Error fetching current event:", error);
         setCurrentEvent(null);
@@ -47,45 +62,80 @@ export default function HomePage() {
     };
 
     fetchCurrentEvent();
-    // Optional: Polling für Event-Updates, falls Events sich tagsüber ändern könnten
-    // const interval = setInterval(fetchCurrentEvent, 60000); // Alle 60 Sekunden
-    // return () => clearInterval(interval);
   }, [selectedCity]);
 
-  // Effekt zum Abrufen von Live-Inhalten für das aktuelle Event über API
+  // Effekt zum Abrufen von Live-Inhalten für das aktuelle Event über Supabase Realtime
   useEffect(() => {
-    if (currentEvent) {
-      const fetchLiveContent = async () => {
-        try {
-          const response = await fetch(`/api/event/${currentEvent.id}/posts`);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          const data = await response.json();
-          setLiveContent(data.posts || []);
-          // Scrollen zum neuesten Inhalt
-          if (contentEndRef.current) {
-            contentEndRef.current.scrollIntoView({ behavior: 'smooth' });
-          }
-        } catch (error) {
-          console.error("Error fetching live content:", error);
-          setLiveContent([]);
-        }
-      };
-
-      fetchLiveContent();
-      // Polling für Live-Inhalte
-      const interval = setInterval(fetchLiveContent, 5000); // Alle 5 Sekunden
-      return () => clearInterval(interval);
-    } else {
+    if (!currentEvent) {
       setLiveContent([]);
+      return;
     }
+
+    const fetchInitialContent = async () => {
+      // Initial Posts und Chats über die API-Route abrufen
+      const response = await fetch(`/api/event/${currentEvent.id}/posts`);
+      if (!response.ok) {
+        console.error("Error fetching initial live content:", await response.text());
+        return;
+      }
+      const data = await response.json();
+      setLiveContent(data.posts || []);
+      if (contentEndRef.current) {
+        contentEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+    };
+
+    fetchInitialContent();
+
+    // Realtime-Abonnement für Posts
+    const postsChannel = supabase
+      .channel(`posts:${currentEvent.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `event_id=eq.${currentEvent.id}` }, payload => {
+        const newPost = {
+          id: payload.new.id,
+          event_id: payload.new.event_id,
+          user_id: payload.new.user_id,
+          type: payload.new.type,
+          url: payload.new.content_url,
+          text: payload.new.text_content,
+          timestamp: payload.new.created_at,
+        };
+        setLiveContent(prev => [...prev, newPost].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()));
+        if (contentEndRef.current) {
+          contentEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      })
+      .subscribe();
+
+    // Realtime-Abonnement für Chats
+    const chatsChannel = supabase
+      .channel(`chats:${currentEvent.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chats', filter: `event_id=eq.${currentEvent.id}` }, payload => {
+        const newChat = {
+          id: payload.new.id,
+          event_id: payload.new.event_id,
+          user_id: payload.new.user_id,
+          type: 'chat',
+          text: payload.new.message,
+          timestamp: payload.new.sent_at,
+        };
+        setLiveContent(prev => [...prev, newChat].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()));
+        if (contentEndRef.current) {
+          contentEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(postsChannel);
+      supabase.removeChannel(chatsChannel);
+    };
   }, [currentEvent]);
 
   // Chat-Nachricht senden
   const handleSendChat = async () => {
     if (chatInput.trim() === '' || !currentEvent) return;
-    if (!isInside) {
+    if (!isInside) { // isInside aus useIsInsideGeofence
       alert('Sie sind nicht im Event-Bereich und können keine Nachrichten senden!');
       return;
     }
@@ -103,44 +153,58 @@ export default function HomePage() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       setChatInput('');
-      // Inhalte werden durch Polling aktualisiert
+      // Inhalte werden durch Realtime-Abonnement aktualisiert
     } catch (e) {
       console.error("Error sending chat message: ", e);
       alert("Fehler beim Senden der Nachricht.");
     }
   };
 
-  // Callback nach erfolgreichem Cloudinary-Upload
-  const handleUploadSuccess = useCallback(async (result) => {
-    if (result.event === 'success' && currentEvent) {
-      if (!isInside) {
-        alert('Sie sind nicht im Event-Bereich und können keine Medien hochladen!');
-        return;
-      }
+  // Medien-Upload über Supabase Storage
+  const handleUploadMedia = async (event) => {
+    const file = event.target.files[0];
+    if (!currentEvent || !file) return;
+    if (!isInside) { // isInside aus useIsInsideGeofence
+      alert('Sie sind nicht im Event-Bereich und können keine Medien hochladen!');
+      return;
+    }
 
-      const { secure_url, resource_type } = result.info;
-      try {
-        const response = await fetch(`/api/event/${currentEvent.id}/post`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            type: resource_type === 'image' ? 'image' : 'video',
-            url: secure_url,
-          }),
+    try {
+      const fileExtension = file.name.split('.').pop();
+      const filePath = `${currentEvent.id}/${Date.now()}.${fileExtension}`;
+      const { data, error: uploadError } = await supabase.storage
+        .from('event-media') // Stellen Sie sicher, dass dieser Bucket in Supabase Storage existiert
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
         });
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        // Inhalte werden durch Polling aktualisiert
-      } catch (e) {
-        console.error("Error adding media content: ", e);
-        alert("Fehler beim Hochladen der Medien.");
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('event-media')
+        .getPublicUrl(filePath);
+
+      const mediaType = file.type.startsWith('image/') ? 'photo' : 'video';
+
+      const response = await fetch(`/api/event/${currentEvent.id}/post`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: mediaType,
+          url: publicUrlData.publicUrl,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create post: ${response.statusText}`);
       }
+      // Inhalte werden durch Realtime-Abonnement aktualisiert
+    } catch (e) {
+      console.error("Error uploading media: ", e);
+      alert("Failed to upload media. Please try again.");
     }
-  }, [currentEvent, isInside]);
+  };
 
   const breakpointColumnsObj = {
     default: 4,
@@ -185,7 +249,7 @@ export default function HomePage() {
                 **Location:** {currentEvent.city} (Lat: {currentEvent.latitude.toFixed(4)}, Lng: {currentEvent.longitude.toFixed(4)})
               </p>
               <p className="mb-2">
-                **Date:** {new Date(currentEvent.date).toLocaleDateString()}
+                **Date:** {currentEvent.date.toLocaleDateString()}
               </p>
               <p className="mb-4">
                 **Time:** {currentEvent.startTime} - {currentEvent.endTime}
@@ -194,7 +258,7 @@ export default function HomePage() {
                 <MapComponent
                   center={[currentEvent.latitude, currentEvent.longitude]}
                   radius={currentEvent.radius}
-                  userLocation={userLocation}
+                  userLocation={userLocation} // NEU: userLocation an MapComponent weitergeben
                 />
               </div>
               {userLocation && (
@@ -219,7 +283,7 @@ export default function HomePage() {
               {liveContent.map((item) => (
                 <div key={item.id} className="p-2 border rounded-md mb-2 break-words">
                   {item.type === 'chat' && <p className="text-sm">{item.text}</p>}
-                  {item.type === 'image' && <img src={item.url} alt="Content" className="w-full h-auto rounded-md" />}
+                  {item.type === 'photo' && <img src={item.url} alt="Content" className="w-full h-auto rounded-md" />}
                   {item.type === 'video' && <video src={item.url} controls className="w-full h-auto rounded-md" />}
                   <p className="text-xs text-gray-500 mt-1">
                     {new Date(item.timestamp).toLocaleTimeString()}
@@ -230,7 +294,7 @@ export default function HomePage() {
             </Masonry>
           </div>
 
-          {currentEvent && isInside && ( // Nur anzeigen, wenn im Geofence
+          {currentEvent && isInside && ( // isInside aus useIsInsideGeofence
             <div className="mt-auto">
               <h3 className="text-lg font-semibold mb-2">Share Content / Chat</h3>
               <div className="flex mb-2">
@@ -249,26 +313,13 @@ export default function HomePage() {
                   Send
                 </button>
               </div>
-              <CldUploadWidget
-                uploadPreset="happening_roulette_preset" // Ihr Cloudinary Upload Preset
-                onSuccess={handleUploadSuccess}
-                options={{
-                  sources: ['local', 'url', 'camera'],
-                  multiple: false,
-                  resourceType: 'auto', // Erlaubt Bilder und Videos
-                }}
-              >
-                {({ open }) => {
-                  return (
-                    <button
-                      onClick={() => open()}
-                      className="w-full bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 text-sm"
-                    >
-                      Upload Photo/Video
-                    </button>
-                  );
-                }}
-              </CldUploadWidget>
+              {/* ÄNDERUNG: Cloudinary Widget durch einfaches File-Input ersetzen */}
+              <input
+                type="file"
+                accept="image/*,video/*"
+                onChange={handleUploadMedia}
+                className="w-full bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 text-sm cursor-pointer"
+              />
             </div>
           )}
           {!currentEvent && <p className="text-center text-gray-500">No active event to share content.</p>}

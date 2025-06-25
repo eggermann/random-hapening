@@ -2,35 +2,57 @@
 import { supabase } from '../../../../lib/supabase';
 
 export default async function handler(req, res) {
-  const { id } = req.query; // eventId
+  const { id: eventId } = req.query; // eventId
 
   if (req.method !== 'GET') {
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
-  if (!id) {
+  if (!eventId) {
     return res.status(400).json({ message: 'Event ID is required.' });
   }
 
   try {
-    const { data: posts, error } = await supabase
-      .from('content')
+    // NEU: Posts abrufen
+    const { data: postsData, error: postsError } = await supabase
+      .from('posts')
       .select('*')
-      .eq('event_id', id) // Ensure this matches your Supabase column name
-      .order('timestamp', { ascending: true });
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: true }); // ÄNDERUNG: created_at
 
-    if (error) {
-      console.error('Supabase error:', error);
-      return res.status(500).json({ message: 'Error fetching posts', error: error.message });
-    }
+    if (postsError) throw postsError;
 
-    // Convert Supabase timestamp strings to a format consumable by client
-    const formattedPosts = posts.map(post => ({
-      ...post,
-      timestamp: new Date(post.timestamp).toISOString(),
-    }));
+    // NEU: Chats abrufen
+    const { data: chatsData, error: chatsError } = await supabase
+      .from('chats')
+      .select('*')
+      .eq('event_id', eventId)
+      .order('sent_at', { ascending: true }); // ÄNDERUNG: sent_at
 
-    res.status(200).json({ posts: formattedPosts });
+    if (chatsError) throw chatsError;
+
+    // NEU: Inhalte kombinieren und sortieren
+    const combinedContent = [
+      ...(postsData || []).map(p => ({
+        id: p.id,
+        event_id: p.event_id,
+        user_id: p.user_id,
+        type: p.type,
+        url: p.content_url, // ÄNDERUNG: content_url zu url mappen für Frontend-Kompatibilität
+        text: p.text_content, // ÄNDERUNG: text_content zu text mappen
+        timestamp: p.created_at, // ÄNDERUNG: created_at
+      })),
+      ...(chatsData || []).map(c => ({
+        id: c.id,
+        event_id: c.event_id,
+        user_id: c.user_id,
+        type: 'chat', // Explizit als Chat markieren
+        text: c.message, // ÄNDERUNG: message zu text mappen
+        timestamp: c.sent_at, // ÄNDERUNG: sent_at
+      })),
+    ].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    res.status(200).json({ posts: combinedContent }); // 'posts' als generischer Name für den Feed
   } catch (error) {
     console.error('API error:', error);
     res.status(500).json({ message: 'Internal server error', error: error.message });

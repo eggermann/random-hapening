@@ -11,12 +11,23 @@ export default function ArchivePage() {
     const fetchArchivedEvents = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/event/archive'); // New API endpoint for archive
+        const response = await fetch('/api/event/archive');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        setArchivedEvents(data.events || []);
+        // ÄNDERUNG: Datenstruktur von der API anpassen
+        const events = data.events.map(event => ({
+          id: event.id,
+          city: event.city,
+          latitude: event.latitude, // API liefert bereits aufbereitet
+          longitude: event.longitude, // API liefert bereits aufbereitet
+          radius: event.radius,
+          date: new Date(event.starts_at), // starts_at als Datum verwenden
+          startTime: new Date(event.starts_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          endTime: new Date(event.ends_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }));
+        setArchivedEvents(events);
       } catch (err) {
         console.error("Error fetching archived events:", err);
         setError("Failed to load archived events.");
@@ -55,7 +66,7 @@ export default function ArchivePage() {
             <div key={event.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow duration-300">
               <h3 className="text-xl font-semibold text-gray-900 mb-2">{event.city} Happening</h3>
               <p className="text-gray-700 mb-1">
-                **Date:** {new Date(event.date).toLocaleDateString()}
+                **Date:** {event.date.toLocaleDateString()}
               </p>
               <p className="text-gray-700 mb-1">
                 **Time:** {event.startTime} - {event.endTime}
@@ -64,7 +75,7 @@ export default function ArchivePage() {
                 **Location:** Lat: {event.latitude.toFixed(4)}, Lng: {event.longitude.toFixed(4)}
               </p>
               {/* Optional: Link zu einer Detailseite für das Event, um dessen Inhalte anzuzeigen */}
-              {/* <Link href={`/archive/${event.id}`} className="text-blue-600 hover:underline">
+              {/* <Link href={`/event/${event.id}`} className="text-blue-600 hover:underline">
                 View Event Details
               </Link> */}
             </div>

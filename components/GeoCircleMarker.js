@@ -1,8 +1,9 @@
 // components/GeoCircleMarker.js
-import { Circle, useMap } from 'react-leaflet';
+import { Circle, Popup, useMap } from 'react-leaflet'; // Popup hinzufügen
 import { useEffect } from 'react';
 
-export default function GeoCircleMarker({ center, radius, userLocation }) {
+// NEU: isActive Prop hinzufügen
+export default function GeoCircleMarker({ center, radius, userLocation, isActive }) {
   const map = useMap();
 
   useEffect(() => {
@@ -17,8 +18,14 @@ export default function GeoCircleMarker({ center, radius, userLocation }) {
         <Circle
           center={center}
           radius={radius} // Radius in Metern
-          pathOptions={{ color: 'red', fillColor: 'red', fillOpacity: 0.3 }}
-        />
+          pathOptions={{
+            color: 'red',
+            fillColor: 'red',
+            fillOpacity: isActive ? 0.3 : 0.1 // ÄNDERUNG: Opazität basierend auf isActive
+          }}>
+          {/* NEU: Popup hinzufügen */}
+          <Popup>{isActive ? 'Current happening!' : 'Past happening'}</Popup>
+        </Circle>
       )}
       {userLocation && (
         <Circle

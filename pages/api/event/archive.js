@@ -6,25 +6,29 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // Start of today
+  const now = new Date();
+  // NEU: Wir suchen Events, deren ends_at in der Vergangenheit liegt
+  const nowISO = now.toISOString();
 
   try {
     const { data: events, error } = await supabase
       .from('events')
       .select('*')
-      .lt('date', today.toISOString()) // Events before today
-      .order('date', { ascending: false });
+      .lt('ends_at', nowISO) // ÄNDERUNG: ends_at verwenden
+      .order('ends_at', { ascending: false }); // ÄNDERUNG: Nach ends_at sortieren
 
     if (error) {
       console.error('Supabase error:', error);
       return res.status(500).json({ message: 'Error fetching archived events', error: error.message });
     }
 
-    // Convert Supabase date string to a format consumable by client
     const formattedEvents = events.map(event => ({
       ...event,
-      date: new Date(event.date).toISOString(),
+      // Die API gibt bereits ISO-Strings zurück, keine weitere Konvertierung nötig
+      // aber wir müssen die GeoJSON-Location für den Client aufbereiten
+      latitude: event.location.coordinates[1], // GeoJSON ist [lng, lat]
+      longitude: event.location.coordinates[0],
+      // starts_at und ends_at sind bereits ISO-Strings
     }));
 
     res.status(200).json({ events: formattedEvents });
