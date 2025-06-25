@@ -13,24 +13,28 @@ export default async function handler(req, res) {
   }
 
   const geminiApiKey = process.env.GEMINI_API_KEY;
+  console.log('GEMINI_API_KEY----> :', geminiApiKey ? 'Loaded' : 'Not Found'); // Safer debugging
 
   if (!geminiApiKey) {
-    console.error('GEMINI_API_KEY is not set in environment variables. Please check your .env.local file.'); // Präzisere Fehlermeldung
+    console.error('GEMINI_API_KEY is not set in environment variables. Please check your .env.local file.');
     return res.status(500).json({ message: 'Server configuration error: Gemini API key missing.' });
   }
 
   const genAI = new GoogleGenerativeAI(geminiApiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+  
+  // --- FIX: Use a current and valid model name ---
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
   try {
-    const locationContext = address || `Koordinaten: ${lat}, ${lng}`;
-    const prompt = `Generiere ein kurzes, mysteriöses "Codewort" (1-2 Wörter) und einen prägnanten, faszinierenden "Teaser" (1-2 Sätze), der auf die Essenz des Ortes "${locationContext}" anspielt, ohne ihn direkt zu verraten. Der Teaser sollte eine Atmosphäre schaffen. Gib die Ausgabe im JSON-Format mit den Schlüsseln "codeWord" und "teaser" zurück. Beispiel: {"codeWord": "Verborgener Pfad", "teaser": "Wo alte Geschichten im Wind flüstern und neue Geheimnisse warten."}`;
+    const locationContext = address || `Coordinates: ${lat}, ${lng}`;
+    const prompt = `Generate a short, mysterious "codeword" (1-2 words) and a concise, fascinating "teaser" (1-2 sentences) that alludes to the essence of the place "${locationContext}" without revealing it directly. The teaser should create an atmosphere. Return the output in JSON format with the keys "codeWord" and "teaser". Example: {"codeWord": "Hidden Path", "teaser": "Where old stories whisper in the wind and new secrets await."}`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
 
-    // Versuche, den JSON-String zu parsen. Manchmal gibt Gemini zusätzlichen Text zurück.
+    // The response from newer models with JSON instructions is generally more reliable.
+    // This robust parsing is still a good practice.
     let jsonMatch = text.match(/\{[^]*\}/);
     let parsedData;
 
@@ -39,18 +43,16 @@ export default async function handler(req, res) {
         parsedData = JSON.parse(jsonMatch[0]);
       } catch (parseError) {
         console.error('Failed to parse Gemini JSON response:', parseError, 'Raw text:', text);
-        // Fallback, wenn JSON nicht geparst werden kann
         parsedData = {
-          codeWord: "Geheimnisvoll",
-          teaser: "Ein Ort voller unentdeckter Wunder."
+          codeWord: "Mystery",
+          teaser: "A place of undiscovered wonders."
         };
       }
     } else {
-      console.warn('No JSON found in Gemini response, attempting to extract from raw text:', text);
-      // Fallback, wenn kein JSON gefunden wird
+      console.warn('No JSON found in Gemini response, providing fallback. Raw text:', text);
       parsedData = {
-        codeWord: text.split(' ')[0] || "Geheimnis",
-        teaser: text.split('. ')[0] + '.' || "Ein Ort voller unentdeckter Wunder."
+        codeWord: "Secret",
+        teaser: "A location holding untold stories."
       };
     }
 

@@ -15,6 +15,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@next/mdx": "^15.3.4",
     "@supabase/supabase-js": "^2.50.1",
     "autoprefixer": "^10.4.21",

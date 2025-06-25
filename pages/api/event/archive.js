@@ -14,8 +14,8 @@ export default async function handler(req, res) {
     const { data: events, error } = await supabase
       .from('events')
       .select('*')
-      .lt('ends_at', nowISO) // ÄNDERUNG: ends_at verwenden
-      .order('ends_at', { ascending: false }); // ÄNDERUNG: Nach ends_at sortieren
+      .lt('end_time', nowISO) // end_time statt ends_at
+      .order('end_time', { ascending: false }); // Nach end_time sortieren
 
     if (error) {
       console.error('Supabase error:', error);
@@ -26,8 +26,8 @@ export default async function handler(req, res) {
       ...event,
       // Die API gibt bereits ISO-Strings zurück, keine weitere Konvertierung nötig
       // aber wir müssen die GeoJSON-Location für den Client aufbereiten
-      latitude: event.location.coordinates[1], // GeoJSON ist [lng, lat]
-      longitude: event.location.coordinates[0],
+      latitude: event.latitude ?? (event.location?.coordinates?.[1] ?? null),
+      longitude: event.longitude ?? (event.location?.coordinates?.[0] ?? null),
       // starts_at und ends_at sind bereits ISO-Strings
     }));
 
