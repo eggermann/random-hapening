@@ -1,23 +1,24 @@
-/* styles/globals.css oder app/globals.css */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+
+
+
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* postcss/tailwindcss expects these at-rules, even if VSCode doesn't recognize them */
+
+@import "tailwindcss";
 
 /* Custom styles for Masonry grid */
 .my-masonry-grid {
-  display: -webkit-box; /* Not needed if autoprefixing */
-  display: -ms-flexbox; /* Not needed if autoprefixing */
+  border:3px solid red;
   display: flex;
-  margin-left: -15px; /* gutter size offset */
+  margin-left: -15px;
   width: auto;
 }
 .my-masonry-grid_column {
-  padding-left: 15px; /* gutter size */
+  padding-left: 15px;
   background-clip: padding-box;
 }
-
-/* Style your items */
-.my-masonry-grid_column > div { /* change div to all your item classes for masonry */
+.my-masonry-grid_column > div {
   background: white;
   margin-bottom: 15px;
 }
+

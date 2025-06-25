@@ -20,3 +20,4 @@ This file tracks the project's progress using a task list format.
 
 * Define scrum orchestrator architecture and responsibilities.
 * Clarify “bring to live” requirements.
+[2025-06-25 14:15:31] - Memory Bank updated after Tailwind/PostCSS config and event date handling fixes.

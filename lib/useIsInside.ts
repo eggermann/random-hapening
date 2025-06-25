@@ -13,7 +13,7 @@ interface Coordinates {
  * @returns A boolean indicating if the user is inside the geofence, and the user's current location.
  */
 export const useIsInsideGeofence = (eventLocation: Coordinates | null, radius: number | null) => {
-  const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
+  const [userLocation, setUserLocation] = useState(null as Coordinates | null);
   const [isInside, setIsInside] = useState(false);
 
   useEffect(() => {

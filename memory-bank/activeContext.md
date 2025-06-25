@@ -20,3 +20,4 @@ This file tracks the project's current status, including recent changes, current
 
 * Define requirements and scope for the scrum orchestrator.
 * Clarify what “bring to live” means for this project (deployment, MVP, workflow automation, etc.).
+[2025-06-25 14:15:16] - Memory Bank Update: Tailwind/PostCSS config fixed, event date handling improved, project state committed.
